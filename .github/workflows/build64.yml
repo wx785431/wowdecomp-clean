@@ -1,0 +1,41 @@
+name: Build Wow x64 (clean)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure
+        run: cmake -B build -A x64 -DWOWDECOMP_DISABLE_SIGNATURE_CHECKS=ON 2>&1 | Tee-Object cmake_log.txt
+        shell: pwsh
+
+      - name: Upload configure log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmake-log
+          path: cmake_log.txt
+
+      - name: Build WowClient (main client)
+        run: cmake --build build --config Release --target WowClient --parallel
+        shell: pwsh
+
+      - name: Collect binaries
+        run: |
+          mkdir out
+          Get-ChildItem -Path . -Recurse -Include WowClient64.exe,XvidDecoder.dll | Copy-Item -Destination out
+          Get-ChildItem out | Select-Object Name, Length
+        shell: pwsh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Wow-x64-clean
+          path: out/*
+          retention-days: 7
