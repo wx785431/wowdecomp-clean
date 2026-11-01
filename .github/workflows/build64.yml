@@ -19,15 +19,22 @@ jobs:
         run: cmake --build build --config Release --target WowClient --parallel
         shell: pwsh
 
-      - name: List build tree
-        run: Get-ChildItem -Path build -Recurse -Include *.exe,*.dll | Select-Object FullName, Length
+      - name: Find exes
+        run: |
+          Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter *.exe |
+            Where-Object { $_.Length -gt 1MB } |
+            Select-Object FullName, Length
         shell: pwsh
 
       - name: Collect binaries
         run: |
           New-Item -ItemType Directory -Force -Path out | Out-Null
-          Get-ChildItem -Path build -Recurse -Filter *.exe | Copy-Item -Destination out -Force
-          Get-ChildItem -Path build -Recurse -Filter *.dll | Copy-Item -Destination out -Force
+          Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter *.exe |
+            Where-Object { $_.Length -gt 1MB } |
+            Copy-Item -Destination out -Force
+          Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter *.dll |
+            Where-Object { $_.Length -gt 1MB -and $_.FullName -match 'build' } |
+            Copy-Item -Destination out -Force
           Get-ChildItem out | Select-Object Name, Length
         shell: pwsh
 
