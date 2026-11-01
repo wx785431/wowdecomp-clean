@@ -12,24 +12,22 @@ jobs:
           submodules: recursive
 
       - name: Configure
-        run: cmake -B build -A x64 -DWOWDECOMP_DISABLE_SIGNATURE_CHECKS=ON 2>&1 | Tee-Object cmake_log.txt
+        run: cmake -B build -A x64 -DWOWDECOMP_DISABLE_SIGNATURE_CHECKS=ON
         shell: pwsh
-
-      - name: Upload configure log
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cmake-log
-          path: cmake_log.txt
 
       - name: Build WowClient (main client)
         run: cmake --build build --config Release --target WowClient --parallel
         shell: pwsh
 
+      - name: List build tree
+        run: Get-ChildItem -Path build -Recurse -Include *.exe,*.dll | Select-Object FullName, Length
+        shell: pwsh
+
       - name: Collect binaries
         run: |
-          mkdir out
-          Get-ChildItem -Path . -Recurse -Include WowClient64.exe,XvidDecoder.dll | Copy-Item -Destination out
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Get-ChildItem -Path build -Recurse -Filter *.exe | Copy-Item -Destination out -Force
+          Get-ChildItem -Path build -Recurse -Filter *.dll | Copy-Item -Destination out -Force
           Get-ChildItem out | Select-Object Name, Length
         shell: pwsh
 
