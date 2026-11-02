@@ -1642,8 +1642,19 @@ int32_t CM2Shared::LoadSkinProfile(uint32_t profile) {
 
 // INLINED
 uint32_t CM2Shared::GetSkinProfileIndex(uint32_t maxBones) {
-    for (uint32_t i = 0; i < this->m_data->m_numSkinProfiles; i++) {
-        if (s_skinProfileBoneCounts[4 - this->m_data->m_numSkinProfiles + i] <= maxBones) {
+    // s_skinProfileBoneCounts only has 4 entries. Some modified/HD models
+    // declare more than 4 skin profiles, which made the index below start
+    // negative. On x86 the out-of-bounds read was harmless, but on x64 the
+    // scaled negative index reaches unmapped memory and crashes (e.g. when
+    // loading models in Eversong Woods). Clamp to the real table size.
+    uint32_t numProfiles = this->m_data->m_numSkinProfiles;
+
+    if (numProfiles > 4) {
+        numProfiles = 4;
+    }
+
+    for (uint32_t i = 0; i < numProfiles; i++) {
+        if (s_skinProfileBoneCounts[4 - numProfiles + i] <= maxBones) {
             return i;
         }
     }
