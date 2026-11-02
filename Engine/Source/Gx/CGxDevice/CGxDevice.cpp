@@ -3,6 +3,9 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+
+// 镜像渲染日志到 WowClient 控制台 (仅在带崩溃日志器的构建中定义; Wow 目标未引用则不会链接)
+extern "C" void WowClientConsolePrint(const char* text);
 #include <new>
 #include "Engine/Source/Storm/H/storm.h"
 #include "Engine/Source/BlizzardCore/SFile2-Core.h"
@@ -1499,7 +1502,6 @@ void CGxDevice::Log(const char* format, va_list args) {
         CGxDevice::m_logBytes += static_cast<uint32_t>(strlen(buffer));
 
         // 镜像渲染日志到 WowClient 控制台 (仅在带崩溃日志器的构建中有定义)
-        extern "C" void WowClientConsolePrint(const char* text);
         WowClientConsolePrint(buffer);
         WowClientConsolePrint("\n");
     }
