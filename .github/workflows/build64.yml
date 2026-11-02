@@ -26,6 +26,9 @@ jobs:
           Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter *.exe |
             Where-Object { $_.Length -gt 1MB } |
             Copy-Item -Destination $dst -Force
+          Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter *.map |
+            Where-Object { $_.Length -gt 100KB } |
+            Copy-Item -Destination $dst -Force
           Get-ChildItem $dst | Select-Object Name, Length
         shell: pwsh
 

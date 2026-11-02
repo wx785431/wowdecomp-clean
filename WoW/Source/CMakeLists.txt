@@ -12,7 +12,7 @@ add_executable(Wow WIN32 ${PRIVATE_SOURCES} ${PLATFORM_SOURCES})
 # which calls StormRtlInitialize() (SLogInitialize + SMemInitialize).
 # Without /ENTRY:start the CRT entry skips Storm memory-manager init and
 # the game crashes on its first Storm allocation at startup.
-target_link_options(Wow PRIVATE "/INCREMENTAL:NO" "/ENTRY:start")
+target_link_options(Wow PRIVATE "/INCREMENTAL:NO" "/ENTRY:start" "/MAP")
 
 if (WOWDECOMP_ARCH_64)
     set(WOW_OUTPUT_NAME Wow64)
