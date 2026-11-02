@@ -15,8 +15,8 @@ jobs:
         run: cmake -B build -A x64 -DWOWDECOMP_DISABLE_SIGNATURE_CHECKS=ON
         shell: pwsh
 
-      - name: Build WowClient (main client)
-        run: cmake --build build --config Release --target WowClient --parallel
+      - name: Build Wow (no console)
+        run: cmake --build build --config Release --target Wow --parallel
         shell: pwsh
 
       - name: Collect binaries
@@ -24,9 +24,6 @@ jobs:
           $dst = Join-Path $env:RUNNER_TEMP "out"
           New-Item -ItemType Directory -Force -Path $dst | Out-Null
           Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter *.exe |
-            Where-Object { $_.Length -gt 1MB } |
-            Copy-Item -Destination $dst -Force
-          Get-ChildItem -Path $env:GITHUB_WORKSPACE -Recurse -Filter *.dll |
             Where-Object { $_.Length -gt 1MB } |
             Copy-Item -Destination $dst -Force
           Get-ChildItem $dst | Select-Object Name, Length
