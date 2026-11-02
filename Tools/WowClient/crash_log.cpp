@@ -25,6 +25,11 @@ static void LogLine(const char* text) {
     }
 }
 
+// 导出: 供引擎镜像日志到控制台
+extern "C" void WowClientConsolePrint(const char* text) {
+    LogLine(text);
+}
+
 static void ModuleOffset(void* address, char* out, size_t size) {
     HMODULE module = nullptr;
     char path[MAX_PATH] = "?";
@@ -144,6 +149,10 @@ static struct CrashLogInit {
             SetConsoleTitleA("WowClient");
             s_console = CreateFileA("CONOUT$", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
         }
+
+        LogLine("WowClient64 - wowdecomp clean build (x64)\n");
+        LogLine("Console: crash info + Gx renderer log mirror. Close = exit game.\n");
+        LogLine("---------------------------------------------------------\n");
 
         AddVectoredExceptionHandler(1, FirstChanceHandler);
         _CrtSetReportHook(CrtReportHook);
