@@ -160,6 +160,7 @@ static void LogHandle(const wchar_t* tag, HANDLE h)
 // 递归保护：万一 Real_ReadFile 被错误地解析回本函数，或日志路径再次走到本钩子，
 // 深度超限时直接透传，避免栈溢出（0xC00000FD）。
 static thread_local int g_readDepth = 0;
+static thread_local int g_reentry = 0;
 
 struct ReadDepthGuard
 {
@@ -173,9 +174,16 @@ static BOOL WINAPI HkReadFile(HANDLE hFile, LPVOID lpBuffer, DWORD nBytes,
     if (!Real_ReadFile) ResolveReals();
     if (!Real_ReadFile) return FALSE;
 
-    // 已在钩子内部（重入），直接转发，不做任何处理
+    // 已在钩子内部（重入）：直接转发。若这里被反复进入说明 Real_ReadFile 指回了自己，
+    // 用显式退出码结束进程，避免栈溢出掩盖真实原因。
     if (g_readDepth >= 1) {
-        return Real_ReadFile(hFile, lpBuffer, nBytes, lpRead, lpOverlapped);
+        if (g_reentry >= 1000) {
+            TerminateProcess(GetCurrentProcess(), 0xDEAD);   // 退出码 57005
+        }
+        ++g_reentry;
+        BOOL r = Real_ReadFile(hFile, lpBuffer, nBytes, lpRead, lpOverlapped);
+        --g_reentry;
+        return r;
     }
 
     ReadDepthGuard guard;   // 声明在所有 return 之前，析构保证配对
@@ -469,6 +477,13 @@ static void InitLog()
 {
     if (g_logInit) return;
     InitializeCriticalSection(&g_logLock);
+    // 可用 WOWPROXY_NOLOG=1 关闭日志（排查日志本身是否引发问题时用）
+    wchar_t v[8] = { 0 };
+    if (GetEnvironmentVariableW(L"WOWPROXY_NOLOG", v, 8) > 0 &&
+        (v[0] == L'1' || v[0] == L'y' || v[0] == L'Y')) {
+        g_logInit = FALSE;
+        return;
+    }
     wchar_t exe[MAX_PATH] = { 0 };
     GetModuleFileNameW(NULL, exe, MAX_PATH);
     lstrcpynW(g_logPath, exe, MAX_PATH);
@@ -485,6 +500,18 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID lpReserved)
         DisableThreadLibraryCalls(hModule);
         ResolveReals();
         InitLog();
+        // 自检：Real_ReadFile 必须来自 kernel32/kernelbase，绝不能落在本模块
+        if (Real_ReadFile) {
+            HMODULE owner = NULL;
+            if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                   GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                   (LPCWSTR)(void*)Real_ReadFile, &owner) && owner) {
+                wchar_t nm[MAX_PATH] = { 0 };
+                GetModuleFileNameW(owner, nm, MAX_PATH);
+                LogLine(L"[init] Real_ReadFile=%p owner=%s hook=%p self=%p\r\n",
+                        (void*)Real_ReadFile, nm, (void*)HkReadFile, (void*)hModule);
+            }
+        }
         // 注意：DllMain 里持着 loader lock，不能枚举模块（CreateToolhelp32Snapshot 可能死锁），
         // 只对主模块做一次"尽力而为"的补丁；剩下交给工作线程。
         PatchOneModule(GetModuleHandleW(NULL));

@@ -37,6 +37,13 @@ static void Check(const char* what, BOOL ok)
 int wmain(int argc, wchar_t** argv)
 {
     setvbuf(stdout, NULL, _IONBF, 0);   // 无缓冲，崩了也能看到最后一步
+    // 第二个参数为 nolog 时，关闭代理 DLL 的日志（用于判断日志是否引发问题）
+    if (argc >= 3 && wcscmp(argv[2], L"nolog") == 0) {
+        SetEnvironmentVariableW(L"WOWPROXY_NOLOG", L"1");
+        printf("[mode] logging disabled\n");
+    } else {
+        printf("[mode] logging enabled\n");
+    }
     printf("[step 0] start\n");
     if (argc < 2) { printf("usage: hooktest.exe <path to DINPUT8.dll>\n"); return 2; }
 

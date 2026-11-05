@@ -42,8 +42,33 @@ jobs:
         run: |
           $dll = (Resolve-Path .\build\Release\DINPUT8.dll).Path
           Write-Host "DLL = $dll"
+          $codes = @()
+
+          Write-Host "===== run 1 : logging ON ====="
           & .\build\Release\hooktest.exe $dll
-          if ($LASTEXITCODE -ne 0) { throw "hooktest failed with $LASTEXITCODE" }
+          $c1 = $LASTEXITCODE
+          Write-Host "exit=$c1"
+          $codes += $c1
+
+          if (Test-Path .\build\Release\WowProxy64.log) {
+            Write-Host "----- proxy log (run1) -----"
+            Get-Content .\build\Release\WowProxy64.log
+          }
+
+          Write-Host "===== run 2 : logging OFF ====="
+          & .\build\Release\hooktest.exe $dll nolog
+          $c2 = $LASTEXITCODE
+          Write-Host "exit=$c2"
+          $codes += $c2
+
+          if ($codes -contains 57005) { Write-Host "!! 检测到自递归 (0xDEAD)" }
+          if ($codes -contains -1073741571) { Write-Host "!! 检测到栈溢出 (0xC00000FD)" }
+          if ($codes -contains -1073741819) { Write-Host "!! 检测到访问冲突 (0xC0000005)" }
+
+          if ($codes -contains -1073741571 -or $codes -contains 57005) {
+            throw "hooktest 崩溃，退出码: $($codes -join ',')"
+          }
+          if ($codes -contains 1) { throw "hooktest 有断言失败: $($codes -join ',')" }
 
       - name: 产物信息
         shell: pwsh
