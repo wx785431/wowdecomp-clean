@@ -387,9 +387,9 @@ static T DinputProc(const char* name)
 }
 
 extern "C" HRESULT WINAPI DirectInput8Create(HINSTANCE hinst, DWORD dwVersion, REFIID riidltf,
-                                             LPVOID* ppvOut, LPUNKNOWN punkOuter)
+                                             LPVOID* ppvOut, void* punkOuter)
 {
-    typedef HRESULT (WINAPI *F)(HINSTANCE, DWORD, REFIID, LPVOID*, LPUNKNOWN);
+    typedef HRESULT (WINAPI *F)(HINSTANCE, DWORD, REFIID, LPVOID*, void*);
     F f = DinputProc<F>("DirectInput8Create");
     return f ? f(hinst, dwVersion, riidltf, ppvOut, punkOuter) : E_FAIL;
 }
