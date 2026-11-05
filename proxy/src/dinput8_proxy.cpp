@@ -157,11 +157,28 @@ static void LogHandle(const wchar_t* tag, HANDLE h)
 // --------------------------------------------------------------------------
 // ReadFile 钩子
 // --------------------------------------------------------------------------
+// 递归保护：万一 Real_ReadFile 被错误地解析回本函数，或日志路径再次走到本钩子，
+// 深度超限时直接透传，避免栈溢出（0xC00000FD）。
+static thread_local int g_readDepth = 0;
+
+struct ReadDepthGuard
+{
+    ReadDepthGuard()  { ++g_readDepth; }
+    ~ReadDepthGuard() { --g_readDepth; }
+};
+
 static BOOL WINAPI HkReadFile(HANDLE hFile, LPVOID lpBuffer, DWORD nBytes,
                               LPDWORD lpRead, LPOVERLAPPED lpOverlapped)
 {
     if (!Real_ReadFile) ResolveReals();
     if (!Real_ReadFile) return FALSE;
+
+    // 已在钩子内部（重入），直接转发，不做任何处理
+    if (g_readDepth >= 1) {
+        return Real_ReadFile(hFile, lpBuffer, nBytes, lpRead, lpOverlapped);
+    }
+
+    ReadDepthGuard guard;   // 声明在所有 return 之前，析构保证配对
 
     uint64_t pos = 0;
     BOOL     havePos = FALSE;

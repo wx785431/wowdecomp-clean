@@ -36,6 +36,8 @@ static void Check(const char* what, BOOL ok)
 
 int wmain(int argc, wchar_t** argv)
 {
+    setvbuf(stdout, NULL, _IONBF, 0);   // 无缓冲，崩了也能看到最后一步
+    printf("[step 0] start\n");
     if (argc < 2) { printf("usage: hooktest.exe <path to DINPUT8.dll>\n"); return 2; }
 
     // ---- 1. 造一个 1KB 的假 MPQ：前 512 字节按真实规则加密 ----
@@ -59,20 +61,27 @@ int wmain(int argc, wchar_t** argv)
     WriteFile(f, scrambled, sizeof(scrambled), &wr, NULL);
     CloseHandle(f);
 
+    printf("[step 1] sample created\n");
+
     // ---- 2. 加载代理 DLL（游戏里是静态导入，这里用 LoadLibrary 等价触发）----
+    printf("[step 2] LoadLibrary %ls\n", argv[1]);
     HMODULE dll = LoadLibraryW(argv[1]);
     if (!dll) { printf("LoadLibrary failed: %lu\n", GetLastError()); return 2; }
-    printf("DINPUT8 代理已加载: %ls\n", argv[1]);
-    Sleep(600);    // 等它的工作线程打完 IAT 补丁
+    printf("[step 3] proxy loaded: %ls\n", argv[1]);
+    Sleep(600);
+    printf("[step 3b] slept 600ms\n");    // 等它的工作线程打完 IAT 补丁
 
     // ---- 3. 正常读文件，头应该已经是明文 ----
+    printf("[step 4] opening sample\n");
     f = CreateFileW(tmpPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (f == INVALID_HANDLE_VALUE) { printf("cannot open sample\n"); return 2; }
 
     BYTE buf[512];
     DWORD got = 0;
     memset(buf, 0, sizeof(buf));
+    printf("[step 5] reading 512 bytes\n");
     ReadFile(f, buf, 512, &got, NULL);
+    printf("[step 5b] got=%lu\n", got);
     Check("整块读取 512 字节，头已还原", got == 512 && memcmp(buf, plain, 512) == 0);
 
     // ---- 4. 中途定位再读（游戏的随机读取路径）----
@@ -80,6 +89,7 @@ int wmain(int argc, wchar_t** argv)
     SetFilePointerEx(f, off, NULL, FILE_BEGIN);
     BYTE part[64];
     memset(part, 0, sizeof(part));
+    printf("[step 6] reading at 64\n");
     ReadFile(f, part, 64, &got, NULL);
     Check("SetFilePointerEx 定位到 64 后读取正确", got == 64 && memcmp(part, plain + 64, 64) == 0);
 
@@ -88,9 +98,11 @@ int wmain(int argc, wchar_t** argv)
     SetFilePointerEx(f, off, NULL, FILE_BEGIN);
     BYTE tail[64];
     memset(tail, 0, sizeof(tail));
+    printf("[step 7] reading at 512\n");
     ReadFile(f, tail, 64, &got, NULL);
     Check("512 之后不受影响", got == 64 && memcmp(tail, plain + 512, 64) == 0);
 
+    printf("[step 8] closing\n");
     CloseHandle(f);
     DeleteFileW(tmpPath);
 
