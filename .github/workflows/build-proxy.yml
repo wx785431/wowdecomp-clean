@@ -1,0 +1,72 @@
+name: build-proxy-dinput8-x64
+
+on:
+  push:
+    branches:
+      - feat/mpq-proxy
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: proxy
+    steps:
+      - name: 取源码
+        uses: actions/checkout@v4
+
+      - name: 环境信息
+        shell: pwsh
+        run: |
+          cmake --version
+          echo "runner=$env:ImageOS  arch=$env:PROCESSOR_ARCHITECTURE"
+
+      - name: 配置（x64 / MSVC）
+        run: cmake -S . -B build -A x64
+
+      - name: 编译
+        run: cmake --build build --config Release --parallel
+
+      - name: 算法自检
+        shell: pwsh
+        run: |
+          .\build\Release\selftest.exe
+          if ($LASTEXITCODE -ne 0) { throw "selftest failed" }
+
+      - name: 端到端钩子测试
+        shell: pwsh
+        run: |
+          $dll = (Resolve-Path .\build\Release\DINPUT8.dll).Path
+          Write-Host "DLL = $dll"
+          & .\build\Release\hooktest.exe $dll
+          if ($LASTEXITCODE -ne 0) { throw "hooktest failed with $LASTEXITCODE" }
+
+      - name: 产物信息
+        shell: pwsh
+        run: Get-Item .\build\Release\DINPUT8.dll | Format-List Name,Length,LastWriteTime
+
+      - name: 把 DLL 提交回仓库
+        shell: pwsh
+        working-directory: .
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item proxy\build\Release\DINPUT8.dll dist\DINPUT8.dll -Force
+          $h = (Get-FileHash dist\DINPUT8.dll -Algorithm SHA256).Hash
+          "$h  DINPUT8.dll" | Set-Content -Encoding ascii dist\SHA256.txt
+          Write-Host "SHA256=$h"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -f dist/
+          git commit -m "build: DINPUT8.dll x64 [skip ci]"
+          git push origin HEAD:feat/mpq-proxy
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: DINPUT8-x64
+          path: proxy/build/Release/DINPUT8.dll
+          if-no-files-found: error
