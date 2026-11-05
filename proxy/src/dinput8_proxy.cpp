@@ -319,6 +319,12 @@ static LPVOID WINAPI HkMapViewOfFile(HANDLE hMap, DWORD access, DWORD offHigh, D
 
 // --------------------------------------------------------------------------
 // IAT 打补丁
+//
+// 重要：绝不能修改 kernel32 / kernelbase / ntdll 自身的 IAT。
+// 这几个 DLL 导出的 ReadFile / CreateFileMappingW 等，本体就是一个
+// 「jmp [自己的 IAT]」跳板；一旦把它们的 IAT 指向我们的钩子，就会出现
+//   钩子 -> kernel32!ReadFile -> 钩子 -> ...
+// 的无限递归（表现为栈溢出 0xC00000FD）。只改应用自己的模块即可。
 // --------------------------------------------------------------------------
 static BOOL IsKernelDll(const char* dll)
 {
@@ -327,9 +333,29 @@ static BOOL IsKernelDll(const char* dll)
            _strnicmp(dll, "api-ms-win-core-file", 20) == 0;
 }
 
+static BOOL IsProtectedSystemModule(HMODULE m)
+{
+    if (!m) return TRUE;
+    // 本模块自己也不改
+    HMODULE self = NULL;
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCWSTR)(void*)&IsProtectedSystemModule, &self) && self == m)
+        return TRUE;
+
+    wchar_t path[MAX_PATH];
+    if (!GetModuleFileNameW(m, path, MAX_PATH)) return TRUE;
+    const wchar_t* name = wcsrchr(path, L'\\');
+    name = name ? name + 1 : path;
+    return lstrcmpiW(name, L"kernel32.dll") == 0 ||
+           lstrcmpiW(name, L"kernelbase.dll") == 0 ||
+           lstrcmpiW(name, L"ntdll.dll") == 0;
+}
+
 static void PatchOneModule(HMODULE mod)
 {
     if (!mod) return;
+    if (IsProtectedSystemModule(mod)) return;   // 见上方说明，系统模块一律跳过
     BYTE* base = (BYTE*)mod;
     IMAGE_DOS_HEADER* dos = (IMAGE_DOS_HEADER*)base;
     if (dos->e_magic != IMAGE_DOS_SIGNATURE) return;
