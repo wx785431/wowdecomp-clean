@@ -42,13 +42,16 @@ struct InspectData {
 class ItemSetRec;
 
 struct ITEMSWAP {
-    /* 0000 */ WOWGUID m_srcContainer;
-    /* 0008 */ WOWGUID m_dstContainer;
-    /* 0010 */ uint32_t m_srcSlot;
-    /* 0014 */ uint32_t m_dstSlot;
-    /* 0018 */ int32_t m_itemId;
-    /* 001C */ CGItem_C* m_item;
+    /* 0000 */ WOWGUID m_srcContainer = WOWGUID();
+    /* 0008 */ WOWGUID m_dstContainer = WOWGUID();
+    /* 0010 */ uint32_t m_srcSlot = 0xFFFFFFFF;
+    /* 0014 */ uint32_t m_dstSlot = 0xFFFFFFFF;
+    /* 0018 */ int32_t m_itemId = 0;
+    /* 001C */ CGItem_C* m_item = nullptr;
 };
+
+// 40 字节布局是二进制复核过的，别让新增初始化破坏它
+static_assert(sizeof(ITEMSWAP) == 0x28, "ITEMSWAP layout must stay 40 bytes");
 
 struct TRADESKILLLINE : public TSHashObject<TRADESKILLLINE, HASHKEY_NONE> {
     /* 0018 */ TSGrowableArray<int32_t> m_spells;

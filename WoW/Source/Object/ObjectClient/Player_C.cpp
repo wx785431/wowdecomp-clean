@@ -1,4 +1,5 @@
 #include "Player_C.h"
+#include <cstdint>
 #include <malloc.h>
 #include "Engine/Source/Base/CDataStore.h"
 #include "Engine/Source/BlizzardCore/SFile2-Core.h"
@@ -2397,6 +2398,16 @@ uint32_t FindEmptySwapIndex() {
 
     if (index == s_itemSwaps.m_count) {
         s_itemSwaps.SetCount(s_itemSwaps.m_count + 1);
+
+        // SetCount 走 placement new，ITEMSWAP 的标量成员不会被清零；
+        // 这里显式初始化，避免 m_item 带着堆上残留数据（曾导致装备瞬间崩溃）
+        ITEMSWAP& entry = s_itemSwaps.m_data[index];
+        entry.m_srcContainer = WOWGUID();
+        entry.m_dstContainer = WOWGUID();
+        entry.m_srcSlot = 0xFFFFFFFF;
+        entry.m_dstSlot = 0xFFFFFFFF;
+        entry.m_itemId = 0;
+        entry.m_item = nullptr;
     }
 
     return index;
@@ -10038,6 +10049,7 @@ void CGPlayer_C::SwapItems(WOWGUID item, WOWGUID srcContainer, uint32_t srcSlot,
                 s_itemSwaps.m_data[index].m_dstContainer = dstContainer;
                 s_itemSwaps.m_data[index].m_dstSlot = dstSlot;
                 s_itemSwaps.m_data[index].m_itemId = bagItem->m_obj->m_entryID;
+                s_itemSwaps.m_data[index].m_item = nullptr;
                 return;
             }
 
@@ -10048,6 +10060,7 @@ void CGPlayer_C::SwapItems(WOWGUID item, WOWGUID srcContainer, uint32_t srcSlot,
                 s_itemSwaps.m_data[index].m_dstContainer = dstContainer;
                 s_itemSwaps.m_data[index].m_dstSlot = dstSlot;
                 s_itemSwaps.m_data[index].m_itemId = bagItem->m_obj->m_entryID;
+                s_itemSwaps.m_data[index].m_item = nullptr;
                 FrameScript_SignalEvent(SCRIPT_EVENT_EQUIP_BIND_CONFIRM, "%d", index);
                 return;
             }
@@ -10213,6 +10226,7 @@ void CGPlayer_C::AutoEquipCursorItem(int32_t ignoreBind) {
                 s_itemSwaps.m_data[index].m_dstContainer = WOWGUID();
                 s_itemSwaps.m_data[index].m_dstSlot = 0;
                 s_itemSwaps.m_data[index].m_itemId = itemObject->m_obj->m_entryID;
+                s_itemSwaps.m_data[index].m_item = nullptr;
                 FrameScript_SignalEvent(SCRIPT_EVENT_AUTOEQUIP_BIND_CONFIRM, "%d", index);
                 return;
             }
@@ -11159,6 +11173,13 @@ void CGPlayer_C::AutoEquipItemToSlot(CGItem_C* item, uint32_t slot, int32_t igno
         return;
     }
 
+    // 最后一道防线：item 必须是 8 字节对齐的堆地址。
+    // 曾出现 m_item 未初始化（0x70、0x706C622E=".blp"）被当成 CGItem_C* 传进来，
+    // 在下面读 item->m_obj（+0x10）时直接 ACCESS_VIOLATION。
+    if (reinterpret_cast<uintptr_t>(item) < 0x10000 || (reinterpret_cast<uintptr_t>(item) & 7) != 0) {
+        return;
+    }
+
     WOWGUID guid = item->m_obj->m_guid;
 
     if (CGTradeInfo::IsItemBeingTraded(guid)) {
@@ -11215,8 +11236,12 @@ void CGPlayer_C::ClearPendingEquip(uint32_t index, int32_t equip) {
     ITEMSWAP* swap = &s_itemSwaps.m_data[index];
 
     if (equip) {
-        if (swap->m_item) {
-            this->AutoEquipItemToSlot(swap->m_item, swap->m_srcSlot, 1);
+        // m_item 只有在“装备绑定确认”流程里才会被写入，其余条目应当保持 nullptr。
+        // 这里再按指针形态校验一次（堆地址 + 8 字节对齐），野指针不进装备流程。
+        CGItem_C* pending = swap->m_item;
+
+        if (pending && reinterpret_cast<uintptr_t>(pending) >= 0x10000 && (reinterpret_cast<uintptr_t>(pending) & 7) == 0) {
+            this->AutoEquipItemToSlot(pending, swap->m_srcSlot, 1);
         } else if (swap->m_dstContainer) {
             this->SwapItems(WOWGUID(), swap->m_srcContainer, swap->m_srcSlot, swap->m_dstContainer, swap->m_dstSlot, 1);
         } else {
