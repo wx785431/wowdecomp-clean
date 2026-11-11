@@ -2,6 +2,9 @@ name: Build Wow x64 (clean)
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - gamepad
 
 jobs:
   build:
