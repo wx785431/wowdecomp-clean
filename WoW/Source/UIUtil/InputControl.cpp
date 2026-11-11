@@ -94,7 +94,8 @@ CGInputControl::CGInputControl() : m_flags(0), m_lookStartTime(0), m_pendingDefa
 // VERIFY: 67293d46 manual
 // OFFSET: 0x005FD2C0
 void InputControlInitialize() {
-    CVar::Register("Joystick", "enable joystick control", 0, "0", JoystickCallback, 5, false, nullptr, false);
+    // Gamepad build: defaults to on so a freshly installed client picks the pad up.
+    CVar::Register("Joystick", "enable joystick control", 0, "1", JoystickCallback, 5, false, nullptr, false);
     s_cvCinematicJoystick = CVar::Register("CinematicJoystick", "enable cinematic joystick control", 0, "0", nullptr, 5, false, nullptr, false);
     CGInputControl::s_inputControl = new (SMemAlloc(sizeof(CGInputControl), __FILE__, __LINE__, 0)) CGInputControl();
     s_cvEnableWowMouse = CVar::Register("enableWowMouse", "Enable Steelseries World of Warcraft Mouse", 1, "0", WowMouseCVarCallback, 5, false, nullptr, false);
@@ -615,7 +616,10 @@ void CGInputControl::OnUpdate(float elapsed) {
         return;
     }
 
-    if (s_joystick != 0xFFFFFFFF && (this->m_flags & 0x6000000)) {
+    // Gamepad build: the original m_flags gate (0x6000000) is never set by the
+    // restored code, so the right stick could never turn the camera. A non zero look
+    // vector means the stick is deflected, which is the only condition we need.
+    if (s_joystick != 0xFFFFFFFF && ((this->m_flags & 0x6000000) || this->m_joystickLookX != 0.0f || this->m_joystickLookY != 0.0f)) {
         CGCamera* camera = CGWorldFrame::GetActiveCamera();
 
         if (camera) {

@@ -140,6 +140,7 @@
 #include "WoW/Source/UIUtil/Camera.h"
 #include "WoW/Source/UIUtil/Cursor.h"
 #include "WoW/Source/UIUtil/InputControl.h"
+#include "WoW/Source/UIUtil/JoystickInput.h"
 #include "WoW/Source/UIUtil/PortraitButton.h"
 #include "WoW/Source/UIUtil/Tooltip.h"
 #include "WoW/Source/WorldClient/World.h"
@@ -1801,6 +1802,7 @@ void CGGameUI::InitializeFrameXML() {
     LoadAccountData(6, LoadPlacedFrames, nullptr);
     LoadAccountVariables();
     CGUIBindings::LoadBindings();
+    JoystickInput_Initialize();
     CGUIMacros::Initialize();
     CGUIMacros::LoadMacros();
     CGChat::LoadChatSettings();
