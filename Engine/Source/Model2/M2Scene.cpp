@@ -445,11 +445,39 @@ void M2BlendBoneMatrices(const C44Matrix* bones, ubyte4 weights, ubyte4 indices,
 
 // VERIFY: 27fe3564 manual
 // OFFSET: 0x0081D510
-M2HitRec* CM2Scene::IntersectHitTestTriangles(const uint16_t* indices, const uint16_t* end, uint32_t vertexStart, const C3Vector& start, uint32_t pass, M2HitRec* rec, float& t, M2HitRec* best) {
-    for (; indices < end; indices += 3) {
-        const C3Vector& v0 = this->m_hitVerts[indices[0] - vertexStart];
-        const C3Vector& v1 = this->m_hitVerts[indices[1] - vertexStart];
-        const C3Vector& v2 = this->m_hitVerts[indices[2] - vertexStart];
+M2HitRec* CM2Scene::IntersectHitTestTriangles(const uint16_t* indices, const uint16_t* end, uint32_t vertexStart, uint32_t vertexCount, const C3Vector& start, uint32_t pass, M2HitRec* rec, float& t, M2HitRec* best) {
+    // 2026-11-14 崩溃修复：原实现把无符号减法 (indices[i] - vertexStart) 直接当数组下标。
+    // 自制 / 5.4.8 转换的 HD 模型里，部分 skin section 的三角形索引小于 vertexStart，
+    // 减法下溢成 0xFFFFFFxx，再乘 12 字节顶点步长，x64 上偏移到 48GB 之外 → ACCESS_VIOLATION。
+    // x86 会回绕到数组附近常不崩，所以原版 3.3.5a 没暴露。这里改成有符号 + 区间校验，
+    // 坏三角形跳过（最多该模型鼠标点不中，不影响渲染与游戏逻辑）。
+    if (!indices || !end || end <= indices || !this->m_hitVerts) {
+        return best;
+    }
+
+    // vertexStart / vertexCount 来自 M2 .skin，正常都 <= 0xFFFF；
+    // 越界说明 section 指针或整段 skin 数据已损坏，整个模型不参与命中测试。
+    if (vertexStart > 0xFFFFu || vertexCount == 0 || vertexCount > this->m_hitVertCapacity) {
+        return best;
+    }
+
+    while (end - indices >= 3) {
+        int64_t i0 = static_cast<int64_t>(indices[0]) - static_cast<int64_t>(vertexStart);
+        int64_t i1 = static_cast<int64_t>(indices[1]) - static_cast<int64_t>(vertexStart);
+        int64_t i2 = static_cast<int64_t>(indices[2]) - static_cast<int64_t>(vertexStart);
+
+        indices += 3;
+
+        if (i0 < 0 || i1 < 0 || i2 < 0
+            || i0 >= static_cast<int64_t>(vertexCount)
+            || i1 >= static_cast<int64_t>(vertexCount)
+            || i2 >= static_cast<int64_t>(vertexCount)) {
+            continue;
+        }
+
+        const C3Vector& v0 = this->m_hitVerts[i0];
+        const C3Vector& v1 = this->m_hitVerts[i1];
+        const C3Vector& v2 = this->m_hitVerts[i2];
         float det = (v2.y - v0.y) * (v1.x - v0.x) - (v2.x - v0.x) * (v1.y - v0.y);
 
         if (fabsf(det) < 0.0000099999997f) {
@@ -495,15 +523,42 @@ M2HitRec* CM2Scene::IntersectHitTestTriangles(const uint16_t* indices, const uin
 // VERIFY: 5ae1f294 manual
 // OFFSET: 0x0081D680
 void CM2Scene::TransformHitTestVerticesBlendSSE(const CM2Model* model, const M2SkinProfile* skinData, const M2SkinSection* section, int32_t normals, const C3Vector& dir, float d) {
+    // 2026-11-14 第二批防护：命中测试的顶点变换路径原先对 section 区间、
+    // skin 顶点映射表和输出缓冲区全部无校验，坏 .skin 会越界读 / 越界写。
+    // 与 IntersectHitTestTriangles 属同一族 x64 越界崩溃，这里逐项拦截。
+    if (!model || !model->m_shared || !model->m_shared->m_data || !skinData || !section || !this->m_hitVerts) {
+        return;
+    }
+
     M2Data* data = model->m_shared->m_data;
     C3Vector* out = this->m_hitVerts;
     C44Matrix matrix;
     uint32_t weights = 0;
     uint32_t indices = 0;
-    uint32_t end = section->m_vertexStart + section->m_vertexCount;
 
-    for (uint32_t i = section->m_vertexStart; i < end; i++) {
-        M2Vertex* vertex = &data->m_vertices[skinData->m_vertices[i]];
+    const uint32_t vertexStart = section->m_vertexStart;
+    const uint32_t vertexCount = section->m_vertexCount;
+
+    if (vertexCount == 0 || vertexCount > this->m_hitVertCapacity
+        || vertexStart > skinData->m_vertices.m_count
+        || vertexCount > skinData->m_vertices.m_count - vertexStart) {
+        return;
+    }
+
+    const uint32_t end = vertexStart + vertexCount;
+
+    for (uint32_t i = vertexStart; i < end; i++) {
+        const uint32_t vertexIndex = skinData->m_vertices[i];
+
+        if (vertexIndex >= data->m_vertices.m_count) {
+            out->x = 0.0f;
+            out->y = 0.0f;
+            out->z = 0.0f;
+            out++;
+            continue;
+        }
+
+        M2Vertex* vertex = &data->m_vertices[vertexIndex];
 
         if (*reinterpret_cast<uint32_t*>(&vertex->m_weights) != weights || *reinterpret_cast<uint32_t*>(&vertex->m_indices) != indices) {
             weights = *reinterpret_cast<uint32_t*>(&vertex->m_weights);
@@ -530,15 +585,42 @@ void CM2Scene::TransformHitTestVerticesBlendSSE(const CM2Model* model, const M2S
 // VERIFY: 28c512ee manual
 // OFFSET: 0x0081D830
 void CM2Scene::TransformHitTestVerticesBlend(const CM2Model* model, const M2SkinProfile* skinData, const M2SkinSection* section, int32_t normals, const C3Vector& dir, float d) {
+    // 2026-11-14 第二批防护：命中测试的顶点变换路径原先对 section 区间、
+    // skin 顶点映射表和输出缓冲区全部无校验，坏 .skin 会越界读 / 越界写。
+    // 与 IntersectHitTestTriangles 属同一族 x64 越界崩溃，这里逐项拦截。
+    if (!model || !model->m_shared || !model->m_shared->m_data || !skinData || !section || !this->m_hitVerts) {
+        return;
+    }
+
     M2Data* data = model->m_shared->m_data;
     C3Vector* out = this->m_hitVerts;
     C44Matrix matrix;
     uint32_t weights = 0;
     uint32_t indices = 0;
-    uint32_t end = section->m_vertexStart + section->m_vertexCount;
 
-    for (uint32_t i = section->m_vertexStart; i < end; i++) {
-        M2Vertex* vertex = &data->m_vertices[skinData->m_vertices[i]];
+    const uint32_t vertexStart = section->m_vertexStart;
+    const uint32_t vertexCount = section->m_vertexCount;
+
+    if (vertexCount == 0 || vertexCount > this->m_hitVertCapacity
+        || vertexStart > skinData->m_vertices.m_count
+        || vertexCount > skinData->m_vertices.m_count - vertexStart) {
+        return;
+    }
+
+    const uint32_t end = vertexStart + vertexCount;
+
+    for (uint32_t i = vertexStart; i < end; i++) {
+        const uint32_t vertexIndex = skinData->m_vertices[i];
+
+        if (vertexIndex >= data->m_vertices.m_count) {
+            out->x = 0.0f;
+            out->y = 0.0f;
+            out->z = 0.0f;
+            out++;
+            continue;
+        }
+
+        M2Vertex* vertex = &data->m_vertices[vertexIndex];
 
         if (*reinterpret_cast<uint32_t*>(&vertex->m_weights) != weights || *reinterpret_cast<uint32_t*>(&vertex->m_indices) != indices) {
             weights = *reinterpret_cast<uint32_t*>(&vertex->m_weights);
@@ -565,12 +647,39 @@ void CM2Scene::TransformHitTestVerticesBlend(const CM2Model* model, const M2Skin
 // VERIFY: e43ce013 manual
 // OFFSET: 0x0081D9C0
 void CM2Scene::TransformHitTestVertices(const CM2Model* model, const M2SkinProfile* skinData, const M2SkinSection* section, int32_t normals, const C3Vector& dir, float d) {
+    // 2026-11-14 第二批防护：命中测试的顶点变换路径原先对 section 区间、
+    // skin 顶点映射表和输出缓冲区全部无校验，坏 .skin 会越界读 / 越界写。
+    // 与 IntersectHitTestTriangles 属同一族 x64 越界崩溃，这里逐项拦截。
+    if (!model || !model->m_shared || !model->m_shared->m_data || !skinData || !section || !this->m_hitVerts) {
+        return;
+    }
+
     M2Data* data = model->m_shared->m_data;
     C3Vector* out = this->m_hitVerts;
-    uint32_t end = section->m_vertexStart + section->m_vertexCount;
 
-    for (uint32_t i = section->m_vertexStart; i < end; i++) {
-        M2Vertex* vertex = &data->m_vertices[skinData->m_vertices[i]];
+    const uint32_t vertexStart = section->m_vertexStart;
+    const uint32_t vertexCount = section->m_vertexCount;
+
+    if (vertexCount == 0 || vertexCount > this->m_hitVertCapacity
+        || vertexStart > skinData->m_vertices.m_count
+        || vertexCount > skinData->m_vertices.m_count - vertexStart) {
+        return;
+    }
+
+    const uint32_t end = vertexStart + vertexCount;
+
+    for (uint32_t i = vertexStart; i < end; i++) {
+        const uint32_t vertexIndex = skinData->m_vertices[i];
+
+        if (vertexIndex >= data->m_vertices.m_count) {
+            out->x = 0.0f;
+            out->y = 0.0f;
+            out->z = 0.0f;
+            out++;
+            continue;
+        }
+
+        M2Vertex* vertex = &data->m_vertices[vertexIndex];
         const C44Matrix& matrix = model->m_boneMatrices[vertex->m_indices.b[0]];
         C3Vector p = vertex->m_position * matrix;
 
@@ -591,13 +700,27 @@ void CM2Scene::TransformHitTestVertices(const CM2Model* model, const M2SkinProfi
 // VERIFY: d07f8475 manual
 // OFFSET: 0x0081DAF0
 M2HitRec* CM2Scene::HitTestGeometry(const CM2Model* model, uint32_t pass, const C3Vector& dir, float d, const C3Vector& start, M2HitRec* rec, float& t, M2HitRec* best) {
+    if (!model || !model->m_shared || !model->m_shared->m_skinData || !model->m_shared->m_data) {
+        return best;
+    }
+
     M2SkinProfile* skinData = model->m_shared->m_skinData;
     M2Data* data = model->m_shared->m_data;
+
+    // 2026-11-14 第二批防护：容器计数为 0 时下面的下标访问全部越界
+    if (skinData->m_batches.m_count == 0 || skinData->m_skinSections.m_count == 0
+        || skinData->m_indices.m_count == 0 || data->m_materials.m_count == 0) {
+        return best;
+    }
 
     for (uint32_t i = 0; i < skinData->m_batches.m_count; i++) {
         M2Batch* batch = &skinData->m_batches[i];
 
         if (batch->m_materialLayer || (batch->m_flags & 8)) {
+            continue;
+        }
+
+        if (batch->m_materialIndex >= data->m_materials.m_count) {
             continue;
         }
 
@@ -622,6 +745,11 @@ M2HitRec* CM2Scene::HitTestGeometry(const CM2Model* model, uint32_t pass, const 
         }
 
         if (batch->m_textureCount) {
+            // 2026-11-14 第二批防护：combo 下标越界在 x64 上会读到野指针
+            if (batch->m_textureWeightComboIndex >= data->m_textureWeightCombos.m_count) {
+                continue;
+            }
+
             alpha *= model->m_textureWeights[data->m_textureWeightCombos[batch->m_textureWeightComboIndex]].m_currentValue;
         }
 
@@ -629,7 +757,23 @@ M2HitRec* CM2Scene::HitTestGeometry(const CM2Model* model, uint32_t pass, const 
             continue;
         }
 
+        if (batch->m_skinSectionIndex >= skinData->m_skinSections.m_count) {
+            continue;
+        }
+
         M2SkinSection* section = &skinData->m_skinSections[batch->m_skinSectionIndex];
+
+        // skin section 的索引/顶点区间合法性：损坏或跨版本转换的 .skin 会给出
+        // 越界的 indexStart / vertexStart，后面 TransformHitTestVertices 和
+        // IntersectHitTestTriangles 都会拿它做数组下标。
+        if (section->m_vertexCount == 0 || section->m_indexCount < 3) {
+            continue;
+        }
+
+        if (static_cast<uint32_t>(section->m_vertexStart) + section->m_vertexCount > skinData->m_vertices.m_count
+            || static_cast<uint32_t>(section->m_indexStart) + section->m_indexCount > skinData->m_indices.m_count) {
+            continue;
+        }
 
         if (section->m_vertexCount > this->m_hitVertCapacity) {
             delete[] this->m_hitVerts;
@@ -653,8 +797,12 @@ M2HitRec* CM2Scene::HitTestGeometry(const CM2Model* model, uint32_t pass, const 
             this->TransformHitTestVerticesBlend(model, skinData, section, pass, dir, d);
         }
 
+        if (!this->m_hitVerts) {
+            continue;
+        }
+
         const uint16_t* indices = &skinData->m_indices[section->m_indexStart];
-        best = this->IntersectHitTestTriangles(indices, indices + section->m_indexCount, section->m_vertexStart, start, pass, rec, t, best);
+        best = this->IntersectHitTestTriangles(indices, indices + section->m_indexCount, section->m_vertexStart, section->m_vertexCount, start, pass, rec, t, best);
     }
 
     return best;
@@ -663,7 +811,17 @@ M2HitRec* CM2Scene::HitTestGeometry(const CM2Model* model, uint32_t pass, const 
 // VERIFY: 4f08e629 manual
 // OFFSET: 0x0081DD50
 M2HitRec* CM2Scene::HitTestCollision(const CM2Model* model, uint32_t pass, const C3Vector& dir, float d, const C3Vector& start, M2HitRec* rec, float& t, M2HitRec* best) {
+    if (!model || !model->m_shared || !model->m_shared->m_data) {
+        return best;
+    }
+
     M2Data* data = model->m_shared->m_data;
+    uint32_t positionCount = data->m_collisionPositions.m_count;
+    uint32_t indexCount = data->m_collisionIndices.m_count;
+
+    if (positionCount == 0 || indexCount < 3 || !data->m_collisionPositions.Data() || !data->m_collisionIndices.Data()) {
+        return best;
+    }
 
     if (data->m_collisionPositions.m_count > this->m_hitVertCapacity) {
         delete[] this->m_hitVerts;
@@ -690,7 +848,11 @@ M2HitRec* CM2Scene::HitTestCollision(const CM2Model* model, uint32_t pass, const
 
     const uint16_t* indices = data->m_collisionIndices.Data();
 
-    return this->IntersectHitTestTriangles(indices, indices + data->m_collisionIndices.m_count, 0, start, pass, rec, t, best);
+    if (!indices || !this->m_hitVerts) {
+        return best;
+    }
+
+    return this->IntersectHitTestTriangles(indices, indices + indexCount, 0, positionCount, start, pass, rec, t, best);
 }
 
 // VERIFY: eaeb7d7b manual

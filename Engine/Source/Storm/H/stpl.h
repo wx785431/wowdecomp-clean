@@ -1164,12 +1164,25 @@ void TSHashTable<T, TKey>::InternalClear(int32_t warn) {
     this->m_fullnessIndicator = 0;
     this->m_fulllist.UnlinkAll();
 
+    // 2026-11-14 崩溃修复：反编译版缺少原版对空桶数组的判断。
+    // 静态哈希表（CGBarberShop::m_useableStyles 等）处于「m_count > 0 但 m_data == nullptr」
+    // 的半初始化 / 已析构状态时，warn==0 分支读 [nullptr + 0x10] 直接 ACCESS_VIOLATION
+    // （2026-11-14 达拉然截图：instruction ...E4AB52E4 / referenced 0x10）。
+    // 同时把循环上限钳到已分配容量，防止 Count() 与 m_alloc 不一致时越界。
+    const uint32_t slotCount = this->m_slotlistarray.Count();
+
+    if (!this->m_slotlistarray.Ptr() || slotCount == 0) {
+        return;
+    }
+
+    const uint32_t safeCount = slotCount < this->m_slotlistarray.m_alloc ? slotCount : this->m_slotlistarray.m_alloc;
+
     if (warn) {
-        for (uint32_t i = 0; i < this->m_slotlistarray.Count(); i++) {
+        for (uint32_t i = 0; i < safeCount; i++) {
             this->m_slotlistarray[i].UnlinkAll();
         }
     } else {
-        for (uint32_t i = 0; i < this->m_slotlistarray.Count(); i++) {
+        for (uint32_t i = 0; i < safeCount; i++) {
             T* node;
 
             while ((node = this->m_slotlistarray[i].Head()) != nullptr) {
