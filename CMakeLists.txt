@@ -54,6 +54,18 @@ if (WOWDECOMP_DISABLE_SIGNATURE_CHECKS)
     add_compile_definitions(DISABLE_SIGNATURE_CHECKS=1)
 endif ()
 
+# WBE / 魔封辅助支持（默认开启，可用 -DWOWDECOMP_ENABLE_WBE_SUPPORT=OFF 关闭回退）：
+# 1) 让第三方插件（WBE 核心库 Interface 50300）以“无污染”状态加载，等价于原版
+#    32 位 LuaUnlocker 做的事，但对重编译的 x64 客户端真正生效；
+# 2) 放行受保护动作 / 受保护帧 / issecure，RunMacroText、CastSpellByName 等才可用；
+# 3) checkAddonVersion 默认 0，免得每次都要手动勾选“加载过期插件”。
+# WBE 插件内容必然被改过，签名/digest 校验必须一并跳过，否则启动即 ClientPostClose(10)。
+option(WOWDECOMP_ENABLE_WBE_SUPPORT "Enable WBE (WowBeeExtreme) addon support by disabling taint checks" ON)
+if (WOWDECOMP_ENABLE_WBE_SUPPORT)
+    add_compile_definitions(ENABLE_WBE_SUPPORT=1)
+    add_compile_definitions(DISABLE_SIGNATURE_CHECKS=1)
+endif ()
+
 # Third-party code is linked, not decompiled, for now.
 if (EXISTS ${CMAKE_SOURCE_DIR}/ThirdParty/CMakeLists.txt)
     add_subdirectory(ThirdParty)

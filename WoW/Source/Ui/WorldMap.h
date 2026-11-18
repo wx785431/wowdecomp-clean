@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include "WoW/Source/Object/WGUID.h"
 #include "Engine/Source/Storm/H/stpl.h"
 
@@ -112,10 +113,21 @@ void WorldMapUnregisterScriptFunctions();
 
 // INLINED
 inline WorldMapContinentInfo::WorldMapContinentInfo() {
+    // 按 M 打开世界地图闪退修复（与 e716c67 装备崩溃同类）：
+    // 原版构造函数只初始化了 4 个 float，m_zoneMap / m_mapID / m_areaID /
+    // unk_10024 留在堆上残留数据。m_continents.SetCount() 走 placement new,
+    // 对缺少 .zmp 或 WorldMapContinent.dbc 记录的地图（私服自定义地图常见），
+    // 这块 64KB 的 m_zoneMap 与 unk_10024 不会被 InitializeGame 覆盖，
+    // 下游 GetMapHighlight/GetMapAreaFromPos 读到垃圾 areaID 后崩溃。
+    // 这里把整块结构清零，m_zones 由自己的构造函数初始化，不动。
+    memset(this->m_zoneMap, 0, sizeof(this->m_zoneMap));
+    this->m_mapID = -1;
+    this->m_areaID = -1;
     this->unk_10014 = 0.0f;
     this->unk_10018 = 0.0f;
     this->unk_1001C = 0.0f;
     this->unk_10020 = 0.0f;
+    this->unk_10024 = 0;
 }
 
 int32_t PlayerExploredZonesUpdateHandler(WOWGUID guid, uint32_t fieldOffset, uint32_t fieldSize, const void* oldValue, void* param);

@@ -1037,11 +1037,21 @@ bool LoadAddOn(const char* name, bool demandLoad, CStatus* status) {
         const char* savedTaint = lua_tainted;
 
         if (++lua_taintexpected && !lua_taintedclosure) {
+#ifdef ENABLE_WBE_SUPPORT
+            // WBE 支持：让所有第三方插件以“无污染”状态加载（等价于原版 LuaUnlocker）。
+            // 这样 WBE 的脚本闭包不会被打上插件名 taint，issecure()/受保护 API 检查才可放行。
+            lua_tainted = nullptr;
+#else
             lua_tainted = addon->m_status ? addonName : nullptr;
+#endif
         }
 
         const char* savedTag = lua_gctag;
+#ifdef ENABLE_WBE_SUPPORT
+        lua_gctag = nullptr;
+#else
         lua_gctag = addon->m_status ? addonName : nullptr;
+#endif
 
         CStatus addonStatus;
         MD5_CTX md5;

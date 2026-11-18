@@ -605,6 +605,13 @@ static int32_t Script_UpdateMapHighlight(lua_State* L) {
     if (area->m_areaID) {
         width = area->m_locLeft - area->m_locRight;
         height = area->m_locTop - area->m_locBottom;
+        // 按 M 闪退修复：部分自定义地图 locLeft == locRight 导致这里除零。
+        // 浮点除零得 ±inf，static_cast<int32_t> 在 MSVC x64 上产生 INT_MIN，
+        // 后续被 textureSize 计算放大并作为纹理缩放推给 Lua/Gx → 崩溃。
+        // width 为 0 时用安全默认值，正常地图不受影响。
+        if (!CMath::fnotequal(width, 0.0f)) {
+            width = 64.0f;
+        }
         size = static_cast<int32_t>(128.0 * height / width);
     } else {
         for (int32_t i = 0; i < g_worldMapContinentDB.m_numRecords; i++) {
@@ -624,6 +631,12 @@ static int32_t Script_UpdateMapHighlight(lua_State* L) {
     }
 
     int32_t textureSize = size;
+
+    // 按 M 闪退修复：size 为 0 时 textureSize 保持 0，
+    // 第 668 行 size/textureSize 会除零产生 NaN 推给 Lua。
+    if (textureSize == 0) {
+        textureSize = 1;
+    }
 
     if (size) {
         if ((size - 1) & size) {
@@ -739,7 +752,9 @@ static int32_t Script_GetMapOverlayInfo(lua_State* L) {
     }
 
     int64_t index = static_cast<int64_t>(lua_tonumber(L, 1)) - 1;
-    int32_t overlayID = index < CGWorldMap::m_numOverlays ? CGWorldMap::m_overlays.m_data[index] : 0;
+    // 按 M 闪退修复：原版只检查上界未检查下界。传 0/负数时 index 为负，
+    // m_data[-1] 越界读出垃圾 overlayID，后续对野记录解引用崩溃。
+    int32_t overlayID = (index >= 0 && index < static_cast<int64_t>(CGWorldMap::m_numOverlays)) ? CGWorldMap::m_overlays.m_data[index] : 0;
     WorldMapOverlayRec* overlay = g_worldMapOverlayDB.GetRecord(overlayID);
 
     if (!overlay) {

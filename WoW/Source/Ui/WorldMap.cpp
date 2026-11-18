@@ -1159,11 +1159,19 @@ int32_t CGWorldMap::GetMapAreaFromPos(float x, float y) {
     double gridX = 0.5 - (rangeY * (1.0 - clampedX) + bottomY) * 0.000029296876;
     double gridY = 0.5 - 0.000029296876 * worldX;
 
-    if (gridX < 0.0 || gridX > 1.0 || gridY < 0.0 || gridY > 1.0) {
+    // 按 M 闪退修复：原版用 > 1.0，坐标为 1.0 时 gridX*128 == 128 会越界；
+    // 同时 m_currentContinent 为 -1 时 m_data[-1] 越界。改成半开区间并检查大陆索引。
+    if (!(gridX >= 0.0 && gridX < 1.0 && gridY >= 0.0 && gridY < 1.0)) {
         return 0;
     }
 
-    return CGWorldMap::m_continents.m_data[CGWorldMap::m_currentContinent].m_zoneMap[static_cast<int32_t>(gridY * 128.0)][static_cast<int32_t>(gridX * 128.0)];
+    int32_t continent = CGWorldMap::m_currentContinent;
+
+    if (continent < 0 || static_cast<uint32_t>(continent) >= CGWorldMap::m_continents.m_count) {
+        return 0;
+    }
+
+    return CGWorldMap::m_continents.m_data[continent].m_zoneMap[static_cast<int32_t>(gridY * 128.0)][static_cast<int32_t>(gridX * 128.0)];
 }
 
 // VERIFY: adfb1fcc manual

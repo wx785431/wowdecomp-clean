@@ -647,7 +647,12 @@ void ClientRegisterConsoleCommands() {
     s_cvMovie = CVar::Register("movie", "Show movie on startup", 0, "1", nullptr, CATEGORY_GAME, false, nullptr, false);
     s_cvExpansionMovie = CVar::Register("expansionMovie", "Show expansion movie on startup", 0, "1", nullptr, CATEGORY_GAME, false, nullptr, false);
     s_cvMovieSubtitle = CVar::Register("movieSubtitle", "Show movie subtitles", 0, "0", nullptr, CATEGORY_GAME, false, nullptr, false);
+#ifdef ENABLE_WBE_SUPPORT
+    // WBE 支持：默认允许过期插件（Interface 50300 != 30300），免去每次手动勾选。
+    g_checkAddonVersionVar = CVar::Register("checkAddonVersion", "Check interface addon version number", 0, "0", nullptr, CATEGORY_GAME, false, nullptr, false);
+#else
     g_checkAddonVersionVar = CVar::Register("checkAddonVersion", "Check interface addon version number", 0, "1", nullptr, CATEGORY_GAME, false, nullptr, false);
+#endif
 
     char mouseSpeed[32];
     SStrPrintf(mouseSpeed, sizeof(mouseSpeed), "%1.1f", OsInputGetMouseSpeed());

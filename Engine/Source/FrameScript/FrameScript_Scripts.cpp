@@ -240,11 +240,16 @@ static int32_t Script_strconcat(lua_State* L) {
 // VERIFY: 8c9d9de7 auto
 // OFFSET: 0x00816DA0
 static int32_t Script_issecure(lua_State* L) {
+#ifdef ENABLE_WBE_SUPPORT
+    // WBE 支持：issecure() 恒为真，让辅助脚本认为自身运行在安全环境。
+    lua_pushnumber(L, 1.0);
+#else
     if (lua_tainted) {
         lua_pushnil(L);
     } else {
         lua_pushnumber(L, 1.0);
     }
+#endif
 
     return 1;
 }

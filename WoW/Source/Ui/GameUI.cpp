@@ -1322,6 +1322,10 @@ WOWGUID CGGameUI::GetRaidMemberPet(uint32_t index) {
 // VERIFY: 6d2d5c91 auto
 // OFFSET: 0x00513530
 void CGGameUI::ShowBlockedActionFeedback(FrameScript_Object* object, uint32_t type) {
+#ifdef ENABLE_WBE_SUPPORT
+    // WBE 支持：屏蔽 "该插件已禁用/只对暴雪 UI 开放" 类报错噪音。
+    return;
+#endif
     // STATIC: 0x00BD0C68
     static int32_t showing;
 
@@ -1602,7 +1606,12 @@ void CGGameUI::TargetDirection(float facing, float angle, int32_t type) {
 // VERIFY: 9da22ed9 auto
 // OFFSET: 0x005191C0
 int32_t CGGameUI::CanPerformAction(uint32_t action) {
+#ifdef ENABLE_WBE_SUPPORT
+    // WBE 支持：跳过 taint 拦截，让 RunMacroText / CastSpellByName 等受保护动作可执行。
+    if (false) {
+#else
     if (lua_tainted) {
+#endif
         switch (action) {
             case 0:
             case 1:
