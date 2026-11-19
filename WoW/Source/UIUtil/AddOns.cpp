@@ -998,6 +998,17 @@ static void LoadAddOnMetadata(UIADDON* addon, const char* line) {
     addon->SetMetadata(key, end);
 }
 
+// 2026-11-20 WBE 白名单：仅这些插件以无 taint 状态加载（其闭包执行时被原版检查自动放行）。
+// WBEA = WowBeeExtreme 核心库（Interface 50300）；其余以 WBE/WowBee 命名的附属插件一并放行。
+static bool IsWbeAddonName(const char* name) {
+    if (!name) {
+        return false;
+    }
+    return SStrCmpI(name, "WBEA", STORM_MAX_STR) == 0
+        || SStrCmpI(name, "WBE", STORM_MAX_STR) == 0
+        || SStrStrI(name, "WowBee") != nullptr;
+}
+
 // VERIFY: 1e6f21da manual
 // OFFSET: 0x005F80B0
 bool LoadAddOn(const char* name, bool demandLoad, CStatus* status) {
@@ -1036,22 +1047,26 @@ bool LoadAddOn(const char* name, bool demandLoad, CStatus* status) {
         FrameScript_GetContext();
         const char* savedTaint = lua_tainted;
 
-        if (++lua_taintexpected && !lua_taintedclosure) {
+        // 2026-11-20 精细化 WBE 支持（修复全插件 tooltip 卡顿）：
+        // 原 081f784 让「所有」插件以无 taint 加载，破坏了 Duowan/RatingBuster 等
+        // tooltip 库的正常运行（悬停背包物品时高频抛 utf8len/cmatch/RawHook 错误，
+        // BugGrabber 每次抓取完整堆栈导致卡顿）。
+        // 实际上 WBE/WowBee 的核心闭包只要在「无 taint」状态下创建，执行时 lua_tainted
+        // 即为 nullptr，原版的 issecure()/CanPerformAction()/ProtectedFunctionsAllowed()
+        // 检查会自动对它放行；无需全局拆掉检查。
+        // 因此这里只对 WBEA 白名单跳过 taint 标记，其余插件保留原版行为（= 11-14 不卡状态）。
 #ifdef ENABLE_WBE_SUPPORT
-            // WBE 支持：让所有第三方插件以“无污染”状态加载（等价于原版 LuaUnlocker）。
-            // 这样 WBE 的脚本闭包不会被打上插件名 taint，issecure()/受保护 API 检查才可放行。
-            lua_tainted = nullptr;
+        bool isWbeAddon = IsWbeAddonName(addonName);
 #else
-            lua_tainted = addon->m_status ? addonName : nullptr;
+        bool isWbeAddon = false;
 #endif
+
+        if (++lua_taintexpected && !lua_taintedclosure) {
+            lua_tainted = (isWbeAddon || !addon->m_status) ? nullptr : addonName;
         }
 
         const char* savedTag = lua_gctag;
-#ifdef ENABLE_WBE_SUPPORT
-        lua_gctag = nullptr;
-#else
-        lua_gctag = addon->m_status ? addonName : nullptr;
-#endif
+        lua_gctag = (isWbeAddon || !addon->m_status) ? nullptr : addonName;
 
         CStatus addonStatus;
         MD5_CTX md5;

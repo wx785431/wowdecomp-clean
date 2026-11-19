@@ -112,12 +112,9 @@ CLayoutFrame* CScriptRegion::GetLayoutFrameByName(const char* name) {
 // VERIFY: 6a00f6bb manual
 // OFFSET: 0x00488540
 bool CScriptRegion::ProtectedFunctionsAllowed() {
-#ifdef ENABLE_WBE_SUPPORT
-    // WBE 支持：受保护帧操作恒允许，否则 WBE 调用受保护 API 时会被拦。
-    return true;
-#else
+    // 2026-11-20：恢复原版语义。WBE 无 taint 加载后 lua_tainted == nullptr，
+    // 此处的 !lua_tainted 分支已自动为 WBE 放行，无需全局恒真（会误伤所有插件）。
     return !this->IsProtected() || !lua_tainted || CSimpleTop::s_instance->m_allowProtectedActions != 0;
-#endif
 }
 
 // VERIFY: 5c7fa85d auto

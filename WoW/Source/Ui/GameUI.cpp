@@ -1322,10 +1322,8 @@ WOWGUID CGGameUI::GetRaidMemberPet(uint32_t index) {
 // VERIFY: 6d2d5c91 auto
 // OFFSET: 0x00513530
 void CGGameUI::ShowBlockedActionFeedback(FrameScript_Object* object, uint32_t type) {
-#ifdef ENABLE_WBE_SUPPORT
-    // WBE 支持：屏蔽 "该插件已禁用/只对暴雪 UI 开放" 类报错噪音。
-    return;
-#endif
+    // 2026-11-20：恢复原版语义。WBE 无 taint 加载后本身不会再触发受保护动作拦截，
+    // 全局屏蔽此反馈会掩盖真实插件错误、破坏 BugGrabber 等错误采集插件的行为。
     // STATIC: 0x00BD0C68
     static int32_t showing;
 
@@ -1606,12 +1604,10 @@ void CGGameUI::TargetDirection(float facing, float angle, int32_t type) {
 // VERIFY: 9da22ed9 auto
 // OFFSET: 0x005191C0
 int32_t CGGameUI::CanPerformAction(uint32_t action) {
-#ifdef ENABLE_WBE_SUPPORT
-    // WBE 支持：跳过 taint 拦截，让 RunMacroText / CastSpellByName 等受保护动作可执行。
-    if (false) {
-#else
+    // 2026-11-20：恢复原版 taint 拦截。WBE 无 taint 加载后其闭包执行时 lua_tainted == nullptr，
+    // 不会进入此分支，RunMacroText / CastSpellByName 等对 WBE 依然可用；
+    // 全局跳过（if(false)）会让所有插件的受保护调用失控，是 tooltip 卡顿链的诱因之一。
     if (lua_tainted) {
-#endif
         switch (action) {
             case 0:
             case 1:

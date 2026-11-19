@@ -240,16 +240,14 @@ static int32_t Script_strconcat(lua_State* L) {
 // VERIFY: 8c9d9de7 auto
 // OFFSET: 0x00816DA0
 static int32_t Script_issecure(lua_State* L) {
-#ifdef ENABLE_WBE_SUPPORT
-    // WBE 支持：issecure() 恒为真，让辅助脚本认为自身运行在安全环境。
-    lua_pushnumber(L, 1.0);
-#else
+    // 2026-11-20：恢复原版 issecure 语义。WBE 插件通过「无 taint 加载」使其闭包
+    // 执行时 lua_tainted == nullptr，此处自然返回 1.0（安全），无需全局恒真。
+    // 全局恒真会破坏 Duowan/RatingBuster 等 tooltip 库，导致悬停物品高频报错卡顿。
     if (lua_tainted) {
         lua_pushnil(L);
     } else {
         lua_pushnumber(L, 1.0);
     }
-#endif
 
     return 1;
 }
