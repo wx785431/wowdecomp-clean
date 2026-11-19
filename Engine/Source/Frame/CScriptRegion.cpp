@@ -112,9 +112,10 @@ CLayoutFrame* CScriptRegion::GetLayoutFrameByName(const char* name) {
 // VERIFY: 6a00f6bb manual
 // OFFSET: 0x00488540
 bool CScriptRegion::ProtectedFunctionsAllowed() {
-    // 2026-11-20：恢复原版语义。WBE 无 taint 加载后 lua_tainted == nullptr，
-    // 此处的 !lua_tainted 分支已自动为 WBE 放行，无需全局恒真（会误伤所有插件）。
-    return !this->IsProtected() || !lua_tainted || CSimpleTop::s_instance->m_allowProtectedActions != 0;
+    // 2026-11-20 三机制分离最终方案：受保护帧操作恒允许，否则魔蜂/Duowan 的
+    // SecureActionButton / SetAttribute 被拦，脚本点了不执行。
+    // 卡顿由 issecure() 语义控制（保持原版），与本开关无关。
+    return true;
 }
 
 // VERIFY: 5c7fa85d auto

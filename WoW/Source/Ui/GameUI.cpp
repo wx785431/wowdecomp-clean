@@ -1616,10 +1616,13 @@ void CGGameUI::TargetDirection(float facing, float angle, int32_t type) {
 // VERIFY: 9da22ed9 auto
 // OFFSET: 0x005191C0
 int32_t CGGameUI::CanPerformAction(uint32_t action) {
-    // 2026-11-20：恢复原版 taint 拦截。WBE 无 taint 加载后其闭包执行时 lua_tainted == nullptr，
-    // 不会进入此分支，RunMacroText / CastSpellByName 等对 WBE 依然可用；
-    // 全局跳过（if(false)）会让所有插件的受保护调用失控，是 tooltip 卡顿链的诱因之一。
-    if (lua_tainted) {
+    // 2026-11-20 三机制分离最终方案：
+    //   1) issecure()            = 原版语义（Duowan 带 taint 时返回 nil）→ 消除 tooltip 卡顿
+    //   2) ProtectedFunctionsAllowed() = 恒真 → 魔蜂/Duowan 的 SecureActionButton/SetAttribute 可执行
+    //   3) CanPerformAction()    = 跳过拦截（此处）→ 魔蜂/Duowan 的 RunMacroText/CastSpellByName 可执行
+    //   4) ShowBlockedActionFeedback() = 屏蔽 → 无「已禁用」弹窗
+    // 卡顿只由 issecure() 恒真触发（Duowan utf8.lua 报错链），与本开关无关，故放行不引入卡顿。
+    if (false) {
         switch (action) {
             case 0:
             case 1:
