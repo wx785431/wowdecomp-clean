@@ -998,15 +998,32 @@ static void LoadAddOnMetadata(UIADDON* addon, const char* line) {
     addon->SetMetadata(key, end);
 }
 
-// 2026-11-20 WBE 白名单：仅这些插件以无 taint 状态加载（其闭包执行时被原版检查自动放行）。
-// WBEA = WowBeeExtreme 核心库（Interface 50300）；其余以 WBE/WowBee 命名的附属插件一并放行。
+// 2026-11-20 无 taint 加载白名单：仅这些插件以无 taint 状态加载
+// （其闭包执行时 lua_tainted == nullptr，原版 issecure()/CanPerformAction()/
+//  ProtectedFunctionsAllowed() 检查会自动为它放行，无需全局拆检查）。
+//
+// 1) WBEA / WBE / *WowBee*：魔蜂 WowBeeExtreme（Interface 50300）核心库及附属插件。
+// 2) Duowan*：多玩/魔兽极限版核心库及附属插件（Duowan, DuowanBar, DuowanChat,
+//    DuowanMove, DuowanQuest, DuowanTradeskill 等）。这些插件靠无 taint 环境调用
+//    受保护 API（自动施法、动作条、界面移动等）；若带 taint 加载，原版检查会拦截并
+//    弹出「Duowan 已被禁用，因为该功能只对暴雪的 UI 开放」，导致功能失效。
+//
+// 关键：全局 taint 检查保持 11-14 原版语义（不要改成恒真），否则 RatingBuster/
+// LibStatLogic 等 tooltip 库行为被破坏 → 悬停背包物品高频报错 → BugGrabber 抓堆栈卡顿。
 static bool IsWbeAddonName(const char* name) {
     if (!name) {
         return false;
     }
-    return SStrCmpI(name, "WBEA", STORM_MAX_STR) == 0
+    if (SStrCmpI(name, "WBEA", STORM_MAX_STR) == 0
         || SStrCmpI(name, "WBE", STORM_MAX_STR) == 0
-        || SStrStrI(name, "WowBee") != nullptr;
+        || SStrStrI(name, "WowBee") != nullptr) {
+        return true;
+    }
+    // 多玩 / 魔兽极限版：目录名与 toc 均以 "Duowan" 开头（如 Duowan、DuowanBar）。
+    if (SStrCmpI(name, "Duowan", SStrLen("Duowan")) == 0) {
+        return true;
+    }
+    return false;
 }
 
 // VERIFY: 1e6f21da manual
