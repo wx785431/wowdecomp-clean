@@ -1322,8 +1322,20 @@ WOWGUID CGGameUI::GetRaidMemberPet(uint32_t index) {
 // VERIFY: 6d2d5c91 auto
 // OFFSET: 0x00513530
 void CGGameUI::ShowBlockedActionFeedback(FrameScript_Object* object, uint32_t type) {
-    // 2026-11-20：恢复原版语义。WBE 无 taint 加载后本身不会再触发受保护动作拦截，
-    // 全局屏蔽此反馈会掩盖真实插件错误、破坏 BugGrabber 等错误采集插件的行为。
+    // 2026-11-20 最终方案：屏蔽「XXX 已被禁用，因为该功能只对暴雪的 UI 开放」弹窗。
+    //
+    // 为什么不靠「让插件无 taint」来消除弹窗：实测 Duowan 一旦无 taint，
+    // Acelibs/UTF8/utf8.lua:209 的 s:utf8len() 会高频为 nil（错误存档 1162 次），
+    // BugGrabber 抓完整堆栈导致悬停背包物品卡顿（11-18 的卡）。所以 Duowan 必须
+    // 保持原版 taint 加载；代价是它调用受保护动作会被 CanPerformAction 拦截并弹窗。
+    //
+    // 本函数只负责「弹窗 + 发 ADDON_ACTION_BLOCKED/FORBIDDEN 事件」，与 Lua 运行时错误
+    // 无关：BugGrabber 抓 utf8len 等错误靠的是 seterrorhandler->grabError，不依赖此事件。
+    // 因此直接屏蔽此反馈 = 消除弹窗噪音，不影响错误采集、不引入卡顿，且对大脚/EUI 等
+    // 任何第三方整合插件一视同仁（弹窗名字取自 lua_tainted，是通用机制）。
+    // WBEA 魔峰本身是无 taint 加载的，其受保护动作根本不会走到这里，功能不受影响。
+    return;
+
     // STATIC: 0x00BD0C68
     static int32_t showing;
 
